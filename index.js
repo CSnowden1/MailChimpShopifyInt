@@ -2,16 +2,21 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const inquiryRoutes = require('./routes/inquiryRoutes');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 const app = express();
 
 // Configure CORS
 const corsOptions = {
-  origin: 'https://ChrisSnowden.com',  // Only allow this domain
+  origin: 'https://chrissnowden.com',  // Only allow this domain
   optionsSuccessStatus: 200  // Some legacy browsers (IE11, various SmartTVs) choke on 204
 };
 
 app.use(cors(corsOptions));
+
+// Middleware to parse JSON bodies
 app.use(bodyParser.json());
 
 // Register the routes

@@ -1,137 +1,132 @@
-const mailchimp = require("@mailchimp/mailchimp_marketing");
+const mailchimp = require('@mailchimp/mailchimp_marketing');
+const md5 = require('md5');
 const nodeSchedule = require('node-schedule');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 mailchimp.setConfig({
-  apiKey: "9b64e3f83563c3954107e08b55bce4f5",
-  server: "us22"
+  apiKey:'e5ea787404e10c64951625f1c4c874f0-us22',
+  server:'us22'
 });
 
 const emailJobs = {}; // Store references to scheduled jobs
 
-async function addListMember(listId, memberInfo) {
-  return await mailchimp.lists.addListMember(listId, {
-    email_address: memberInfo.email,
-    status_if_new: "subscribed",
-    status: "subscribed",
-    merge_fields: memberInfo.merge_fields
-  });
-}
-
-async function removeListMember(listId, email) {
+async function updateMemberTags(listId, email, tags) {
   try {
-    const subscriberHash = mailchimp.utils.md5(email.toLowerCase());
-    await mailchimp.lists.deleteListMember(listId, subscriberHash);
+    const subscriberHash = md5(email.toLowerCase());
+    await mailchimp.lists.updateListMemberTags(listId, subscriberHash, { tags });
   } catch (error) {
-    console.error(`Error removing ${email} from list ${listId}:`, error.message);
+    console.error(`Error updating tags for ${email}: ${error.message}`);
+    throw error;
   }
 }
 
-function scheduleEmail(email, listId, delayInMinutes) {
-  const jobId = `${email}-${listId}`;
-  if (emailJobs[jobId]) {
-    emailJobs[jobId].cancel();
+
+
+const handleBasicInquiry = async (req, res) => {
+  console.log('Basic inquiry route hit');
+  const { email } = req.body;
+  console.log(req.body);
+  if (!email) {
+    console.error('Missing required fields: name or email');
+    return res.status(400).json({ message: 'Missing required fields: name or email' });
   }
-  emailJobs[jobId] = nodeSchedule.scheduleJob(new Date(Date.now() + delayInMinutes * 60000), async () => {
-    await sendEmail(email, listId);
-    delete emailJobs[jobId];
-    // Update Mailchimp to indicate that the reminder email has been sent
-    await mailchimp.lists.updateListMember(listId, mailchimp.utils.md5(email.toLowerCase()), {
-      merge_fields: { REMINDER_SENT: 'yes' }
-    });
-  });
-}
 
-async function sendEmail(email, listId) {
-  console.log(`Email sent to ${email} from list ${listId}`);
-  // Implement email sending logic here
-}
+  const listId = process.env.MAILCHIMP_LIST_ID;
+  const subscriberHash = md5(email.toLowerCase());
+  addUser(email, listId)
 
-
-exports.handleBasicInquiry = async (req, res) => {
-    const { name, email } = req.body;
-    const [firstName, lastName] = name.split(' ');
-  
-    try {
-      const memberInfo = {
-        email: email,
-        merge_fields: {
-          FNAME: firstName,
-          LNAME: lastName || '',
-          REMINDER_SENT: 'no'  // Initialize reminder sent status as 'no'
-        }
-      };
-      await addListMember("basic_list_id", memberInfo);
-      scheduleEmail(email, "basic_list_id", 30);  // Set to 30 minutes
-      res.status(200).json({
-        message: `Successfully added ${email} to the basic inquiry list and email scheduled.`,
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to add contact", error: error.message });
-    }
-  };
-  
-  exports.handleDetailedInquiry = async (req, res) => {
-    const { name, email, service, description } = req.body;
-    const [firstName, lastName] = name.split(' ');
-  
-    try {
-      await removeListMember("basic_list_id", email);
-      const memberInfo = {
-        email: email,
-        merge_fields: {
-          FNAME: firstName,
-          LNAME: lastName || '',
-          SERVICE: service,
-          DESC: description,
-          REMINDER_SENT: 'no'
-        }
-      };
-      await addListMember("detailed_list_id", memberInfo);
-      scheduleEmail(email, "detailed_list_id", 30);
-      res.status(200).json({
-        message: `Successfully transitioned ${email} to detailed inquiry list.`,
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to transition contact", error: error.message });
-    }
-  };
-  
-
-  exports.handleCompleteInquiry = async (req, res) => {
-    const { name, email, service, description, appointmentTime, appointmentDate } = req.body;
-    const [firstName, lastName] = name.split(' ');
-
-    try {
-        // Remove user from previous lists if they are present
-        await removeListMember("basic_list_id", email);
-        await removeListMember("detailed_list_id", email);
-        const memberInfo = {
-            email: email,
-            merge_fields: {
-                FNAME: firstName,
-                LNAME: lastName || '',
-                SERVICE: service,
-                DESC: description,
-                APPTIME: appointmentTime,
-                APPDATE: appointmentDate,
-                REMINDER_SENT: 'no'
-            }
-        };
-        // Add user to the complete list
-        await addListMember("complete_list_id", memberInfo);
-        // Send a confirmation email immediately upon form completion
-        await sendConfirmationEmail(email, memberInfo.merge_fields);
-        res.status(200).json({
-            message: `Successfully transitioned ${email} to complete inquiry list and sent confirmation email.`,
-        });
-    } catch (error) {
-        res.status(500).json({ message: "Failed to transition contact or send confirmation email", error: error.message });
-    }
+  try {
+    await addUser(email, listId);
+    await mailchimp.lists.updateListMemberTags(
+      listId,
+      subscriberHash,
+      {
+        tags: [
+          { name: "Basic Inquiry", status: "active" }
+        ],
+      }
+    );
+    scheduleEmail(email, listId, 60); // Schedule follow-up email in 60 minutes
+    res.status(200).json({ message: 'Basic inquiry saved and follow-up email scheduled' });
+  } catch (error) {
+    console.error(`Error handling basic inquiry: ${error.message}`);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
 };
 
-async function sendConfirmationEmail(email, mergeFields) {
-    console.log(`Sending confirmation email to ${email}`);
-    // Implement the actual email sending logic here
-    // The content of the email could be tailored based on the mergeFields content
-    // Example: "Hello, {mergeFields.FNAME}, your appointment on {mergeFields.APPTIME} has been confirmed."
+
+
+async function addUser(email, listId) {
+   try {
+    await mailchimp.lists.addListMember(listId, {
+    email_address: email,
+    status: "subscribed",
+  });
+   } catch (error) {}
 }
+
+
+function scheduleEmail(email, listId, delayInMinutes) {
+  const job = nodeSchedule.scheduleJob(Date.now() + delayInMinutes * 60000, async function () {
+    try {
+      const tags = [{ name: 'follow-up-email', status: 'active' }];
+      await updateMemberTags(listId, email, tags);
+      delete emailJobs[email];
+    } catch (error) {
+      console.error(`Error scheduling follow-up email for ${email}: ${error.message}`);
+    }
+  });
+  emailJobs[email] = job;
+}
+
+const handleDetailedInquiry = async (req, res) => {
+  console.log('Detailed inquiry route hit');
+  const { name, email, service, description } = req.body;
+
+  if (!name || !email || !service || !description) {
+    console.error('Missing required fields');
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+
+  const listId = process.env.MAILCHIMP_LIST_ID;
+
+  try {
+    await updateMemberTags(listId, email, [{ name: 'detailed-info', status: 'active' }]);
+    res.status(200).json({ message: 'Detailed inquiry saved' });
+  } catch (error) {
+    console.error(`Error handling detailed inquiry: ${error.message}`);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+};
+
+const handleCompleteInquiry = async (req, res) => {
+  console.log('Complete inquiry route hit');
+  const { name, email, service, description } = req.body;
+
+  if (!name || !email || !service || !description) {
+    console.error('Missing required fields');
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+
+  const listId = process.env.MAILCHIMP_LIST_ID;
+
+  try {
+    await updateMemberTags(listId, email, [{ name: 'complete-info', status: 'active' }]);
+    if (emailJobs[email]) {
+      emailJobs[email].cancel(); // Cancel any scheduled follow-up email
+      delete emailJobs[email];
+    }
+    res.status(200).json({ message: 'Complete inquiry saved' });
+  } catch (error) {
+    console.error(`Error handling complete inquiry: ${error.message}`);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
+};
+
+module.exports = {
+  handleBasicInquiry,
+  handleDetailedInquiry,
+  handleCompleteInquiry
+};
