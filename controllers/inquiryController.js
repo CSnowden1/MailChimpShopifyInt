@@ -26,7 +26,7 @@ async function updateMemberTags(listId, email, tags) {
 
 const handleBasicInquiry = async (req, res) => {
   console.log('Basic inquiry route hit');
-  const { email } = req.body;
+  const { email, firstName, lastName } = req.body;
   console.log(req.body);
   if (!email) {
     console.error('Missing required fields: name or email');
@@ -35,10 +35,10 @@ const handleBasicInquiry = async (req, res) => {
 
   const listId = process.env.MAILCHIMP_LIST_ID;
   const subscriberHash = md5(email.toLowerCase());
-  addUser(email, listId)
+  addUser(email, firstName, lastName, listId)
 
   try {
-    await addUser(email, listId);
+    await addUser(email, firstName, lastName, listId);
     await mailchimp.lists.updateListMemberTags(
       listId,
       subscriberHash,
@@ -58,11 +58,15 @@ const handleBasicInquiry = async (req, res) => {
 
 
 
-async function addUser(email, listId) {
+async function addUser(email, firstName, lastName, listId) {
    try {
     await mailchimp.lists.addListMember(listId, {
     email_address: email,
     status: "subscribed",
+    merge_fields: {
+      FNAME: firstName,
+      LNAME: lastName
+    }
   });
    } catch (error) {}
 }
