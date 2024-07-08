@@ -84,6 +84,7 @@ function scheduleEmail(email, listId, delayInMinutes) {
 const handleDetailedInquiry = async (req, res) => {
   console.log('Detailed inquiry route hit');
   const { name, email, service, description } = req.body;
+  console.log(req.body);
 
   if (!name || !email || !service || !description) {
     console.error('Missing required fields');

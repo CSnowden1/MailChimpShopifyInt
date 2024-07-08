@@ -1,6 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const cors = require('cors');
+const cors = require('cors'); // Import CORS middleware
 const inquiryRoutes = require('./routes/inquiryRoutes');
 const dotenv = require('dotenv');
 
@@ -8,10 +8,20 @@ dotenv.config();
 
 const app = express();
 
-// Configure CORS
+// CORS middleware setup
+const allowedOrigins = ['https://chrissnowden.com', 'http://localhost:3000'];
+
 const corsOptions = {
-  origin: 'https://chrissnowden.com',  // Only allow this domain
-  optionsSuccessStatus: 200  // Some legacy browsers (IE11, various SmartTVs) choke on 204
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type'],
+    credentials: true // enable set cookie
 };
 
 app.use(cors(corsOptions));
